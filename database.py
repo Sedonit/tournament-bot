@@ -9,6 +9,8 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 # === ВАЖНО: ЭТА ФУНКЦИЯ ДОЛЖНА БЫТЬ ПЕРВОЙ ===
 def get_db_connection():
     """Создание подключения к базе данных"""
+    # Добавим лог для диагностики подключения
+    # print(f"Попытка подключения к БД по URL: {DATABASE_URL}") # Можно раскомментировать для отладки
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 # === Теперь можно использовать get_db_connection ===
@@ -89,6 +91,7 @@ def get_all_applications(limit=None, offset=0):
     conn.close()
     return applications
 
+# Эта функция должна быть определена ПОСЛЕ get_db_connection
 def delete_application_by_id(app_id):
     """Удаление анкеты по ID"""
     conn = get_db_connection()
