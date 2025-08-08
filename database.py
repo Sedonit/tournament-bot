@@ -131,4 +131,4 @@ async def nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return RANK
 
 async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['rank']…
+    context.user_data['rank']
