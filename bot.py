@@ -4,8 +4,9 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 # Получаем токен и ID админов из переменных окружения
-BOT_TOKEN = os.environ.get('8162425911:AAHAoataP_W84txlOp-6h9r66tdQdUr_U4M')
-ADMIN_IDS_STR = os.environ.get('951964149', '1862994550')
+# Правильно!
+BOT_TOKEN = os.environ.get('BOT_TOKEN')  # Получаем значение переменной с ключом 'BOT_TOKEN'
+ADMIN_IDS_STR = os.environ.get('ADMIN_IDS', '')  # Получаем значение переменной с ключом 'ADMIN_IDS'
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(',') if x.strip().isdigit()]
 
 # Состояния разговора
