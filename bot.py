@@ -238,8 +238,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🗑 Удалить профиль", callback_data="delete_profile")],
             [InlineKeyboardButton("♻️ Сбросить всё", callback_data="reset_all")],
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("👑 Админ-панель", reply_markup=reply_markup)
+         reply_markup = InlineKeyboardMarkup(keyboard)
+         await query.edit_message_text("👑 Админ-панель", reply_markup=reply_markup)
 
 
 # === УДАЛЕНИЕ ПРОФИЛЯ ===
