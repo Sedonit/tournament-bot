@@ -5,12 +5,10 @@ from psycopg2.extras import RealDictCursor
 # Получаем URL базы данных из переменных окружения
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# === ВАЖНО: ЭТА ФУНКЦИЯ ДОЛЖНА БЫТЬ ПЕРВОЙ ===
 def get_db_connection():
     """Создание подключения к базе данных"""
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
-# === Теперь можно использовать get_db_connection ===
 def delete_application_by_id(app_id):
     """Удаление анкеты по ID"""
     conn = get_db_connection()

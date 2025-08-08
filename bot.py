@@ -309,10 +309,15 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
 
-    application.add_handler(conv_handler)
+    # === Добавляем обработчики КОМАНД и КОЛБЭКОВ ===
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^(stats|list_all|delete_profile|reset_all)$"))
     application.add_handler(CallbackQueryHandler(confirm_delete_handler, pattern="^(confirm_delete|cancel_action)$"))
     application.add_handler(CallbackQueryHandler(confirm_reset_handler, pattern="^(confirm_reset|cancel_action)$"))
+
+    # Диалог регистрации
+    application.add_handler(conv_handler)
+
+    # Обработка текстовых сообщений для удаления профиля
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, waiting_delete_id), group=1)
 
     logger.info("🚀 Бот запущен")
