@@ -2,6 +2,32 @@
 import os
 import sys
 import logging
+# Имитация открытия порта для удовлетворения Render (на случай, если переменная окружения не сработает)
+# Делаем это ДО любых других импортов
+try:
+    import threading
+    import time
+    import socket
+
+    def open_and_close_port():
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.bind(('0.0.0.0', 0))
+            port = s.getsockname()[1]
+            print(f"INFO:render: Temporarily bound to port {port} to satisfy Render port scan.")
+            s.listen(1)
+            time.sleep(2) # Ждем немного
+            s.close()
+            print(f"INFO:render: Port {port} closed.")
+        except Exception as e:
+            print(f"INFO:render: Could not temporarily bind port: {e}")
+
+    port_thread = threading.Thread(target=open_and_close_port, daemon=True)
+    port_thread.start()
+except Exception as e:
+    pass # Игнорируем ошибки, если не удалось
+
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -55,10 +81,8 @@ ADMIN_IDS_STR = os.environ.get('ADMIN_IDS', '')
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(',') if x.strip().isdigit()]
 
 # Состояния
-(
-    NICKNAME, RANK, NAME, CONTACT, TEAM,
-    WAITING_DELETE_ID, CONFIRM_DELETE
-) = range(7)
+NICKNAME, RANK, NAME, CONTACT, TEAM = range(5)
+WAITING_DELETE_ID, CONFIRM_DELETE = range(100, 102)
 
 # Логирование
 logging.basicConfig(
@@ -81,7 +105,7 @@ def initialize_database():
 def get_admin_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
-        [InlineKeyboardButton("📋 Все участники", callback_data="list_all")], # <<< Без пагинации
+        [InlineKeyboardButton("📋 Все участники", callback_data="list_all")],
         [InlineKeyboardButton("🗑 Удалить профиль", callback_data="delete_profile")],
         [InlineKeyboardButton("♻️ Сбросить всё", callback_data="reset_all")],
     ])
@@ -206,7 +230,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text("❌ Ошибка.", reply_markup=reply_markup)
 
-    elif data == "list_all": # <<< Упрощенный обработчик без пагинации
+    elif data == "list_all":
         if not DATABASE_AVAILABLE:
             keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_admin_menu")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -383,7 +407,7 @@ def main():
     # === Обработчики колбэков (кнопок) ДОБАВЛЯЕМ ПЕРВЫМИ ===
     # Это важно для правильной работы кнопок вне диалога
 
-    # Обработчики админских кнопок (включая пагинацию и кнопку "Назад")
+    # Обработчики админских кнопок
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^(stats|list_all|delete_profile|reset_all|back_to_admin_menu)$"))
     # Обработчики подтверждения/отмены удаления и сброса
     application.add_handler(CallbackQueryHandler(confirm_delete_handler, pattern="^(confirm_delete|cancel_action|back_to_admin_menu)$"))
