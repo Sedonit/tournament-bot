@@ -65,20 +65,6 @@ def get_stats():
     conn.close()
     return total, teams
 
-def get_application_by_id(app_id):
-    """Получение одной анкеты по её ID"""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, nickname, rank, name, contact, team, created_at
-        FROM applications
-        WHERE id = %s
-    """, (app_id,))
-    application = cur.fetchone()
-    cur.close()
-    conn.close()
-    return application
-
 def get_all_applications():
     """Получение всех анкет, отсортированных по дате создания (новые первые)"""
     conn = get_db_connection()
