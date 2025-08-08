@@ -1,8 +1,7 @@
-# render.yaml
 services:
-  - type: service # <<< ИЗМЕНЕНО С web НА service
+  - type: service
     name: tournament-bot
     runtime: python
-    plan: free # <<< Добавлено для гарантии бесплатного тарифа
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py

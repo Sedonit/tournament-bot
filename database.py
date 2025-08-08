@@ -65,33 +65,29 @@ def get_stats():
     conn.close()
     return total, teams
 
-def get_all_applications():
+def get_all_applications(limit=None, offset=0):
     """Получение всех анкет, отсортированных по дате создания (новые первые)"""
+    """Если limit=None, возвращаются все записи, начиная с offset"""
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT id, nickname, rank, name, contact, team, created_at
-        FROM applications
-        ORDER BY created_at DESC
-    """)
+    if limit is None:
+        cur.execute("""
+            SELECT id, nickname, rank, name, contact, team, created_at
+            FROM applications
+            ORDER BY created_at DESC
+            OFFSET %s
+        """, (offset,))
+    else:
+        cur.execute("""
+            SELECT id, nickname, rank, name, contact, team, created_at
+            FROM applications
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """, (limit, offset))
     applications = cur.fetchall()
     cur.close()
     conn.close()
     return applications
-
-def get_application_by_id(app_id):
-    """Получение одной анкеты по её ID"""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, nickname, rank, name, contact, team, created_at
-        FROM applications
-        WHERE id = %s
-    """, (app_id,))
-    application = cur.fetchone()
-    cur.close()
-    conn.close()
-    return application
 
 def delete_application_by_id(app_id):
     """Удаление анкеты по ID"""
