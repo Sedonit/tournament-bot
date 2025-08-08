@@ -84,7 +84,7 @@ def initialize_database():
 def get_admin_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
-        [InlineKeyboardButton("📋 Все участники", callback_data="list_all_page_1")], # <<< Изменено для пагинации
+        [InlineKeyboardButton("📋 Все участники", callback_data="list_all_page_1")],
         [InlineKeyboardButton("🗑 Удалить профиль", callback_data="delete_profile")],
         [InlineKeyboardButton("♻️ Сбросить всё", callback_data="reset_all")],
     ])
@@ -148,10 +148,15 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Связь: {contact_val}\nКоманда: {team_val}"
     )
 
-    # Отправляем админам
+    # Отправляем админам с кнопкой перехода в меню
+    keyboard = [
+        [InlineKeyboardButton("⚙️ Админ-меню", callback_data="back_to_admin_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     for admin_id in ADMIN_IDS:
         try:
-            await context.bot.send_message(chat_id=admin_id, text=form_text)
+            await context.bot.send_message(chat_id=admin_id, text=form_text, reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Ошибка отправки админу {admin_id}: {e}")
 
@@ -204,7 +209,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text("❌ Ошибка.", reply_markup=reply_markup)
 
-    elif data.startswith("list_all_page_"): # <<< Обработчик для пагинации
+    elif data.startswith("list_all_page_"):
         if not DATABASE_AVAILABLE:
             keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_admin_menu")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -213,11 +218,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             page = int(data.split("_")[-1])
             offset = (page - 1) * ITEMS_PER_PAGE
-            # Получаем общее количество записей для вычисления страниц
-            all_apps = get_all_applications()
-            total_count = len(all_apps)
+            
             # Получаем записи для текущей страницы
             apps = get_all_applications(limit=ITEMS_PER_PAGE, offset=offset)
+            
+            # Получаем общее количество записей для вычисления страниц
+            # Это нужно для определения, есть ли следующая страница
+            all_apps_for_count = get_all_applications()
+            total_count = len(all_apps_for_count)
 
             if not apps:
                 message = "📭 Нет заявок."
@@ -234,7 +242,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             navigation_buttons = []
             if page > 1:
                 navigation_buttons.append(InlineKeyboardButton("⬅️ Предыдущая", callback_data=f"list_all_page_{page - 1}"))
-            if offset + ITEMS_PER_PAGE < total_count:
+            if offset + ITEMS_PER_PAGE < total_count: # Проверяем по общему количеству
                 navigation_buttons.append(InlineKeyboardButton("➡️ Следующая", callback_data=f"list_all_page_{page + 1}"))
 
             keyboard = [navigation_buttons, [InlineKeyboardButton("🏠 В меню", callback_data="back_to_admin_menu")]]
@@ -247,18 +255,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Ошибка.", reply_markup=reply_markup)
 
     elif data == "delete_profile":
-        await query.edit_message_text("Введите номер профиля из списка (номер слева от #ID):")
+        # Добавляем кнопку "Назад" на экран ввода номера
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_admin_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("Введите номер профиля из списка (номер слева от #ID):", reply_markup=reply_markup)
         context.user_data['awaiting_delete_id'] = True
         return WAITING_DELETE_ID
 
     elif data == "reset_all":
         keyboard = [
             [InlineKeyboardButton("✅ Да, сбросить всё", callback_data="confirm_reset")],
-            [InlineKeyboardButton("❌ Нет, отмена", callback_data="cancel_action")]
+            [InlineKeyboardButton("❌ Нет, отмена", callback_data="cancel_action")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_admin_menu")]
         ]
-        await query.edit_message_text("⚠️ Внимание! Это удалит ВСЕ заявки.\nПодтвердите действие:", reply_markup=InlineKeyboardMarkup(keyboard))
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("⚠️ Внимание! Это удалит ВСЕ заявки.\nПодтвердите действие:", reply_markup=reply_markup)
 
-    elif data == "back_to_admin_menu": # <<< Кнопка "Назад" в меню
+    elif data == "back_to_admin_menu":
         reply_markup = get_admin_menu_keyboard()
         await query.edit_message_text("👑 Админ-панель", reply_markup=reply_markup)
 
@@ -270,16 +283,22 @@ async def waiting_delete_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         profile_num = int(update.message.text.strip())
     except ValueError:
-        await update.message.reply_text("❌ Введите число.")
-        return
+        # Добавляем кнопку "Назад" при ошибке ввода
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_admin_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("❌ Введите число.", reply_markup=reply_markup)
+        return WAITING_DELETE_ID # Остаемся в состоянии WAITING_DELETE_ID
 
     try:
         # Для удаления нужно получить полный список, чтобы найти запись по номеру
         apps = get_all_applications()
         # Проверка диапазона: profile_num от 1 до len(apps)
         if profile_num < 1 or profile_num > len(apps):
-            await update.message.reply_text(f"❌ Нет профиля с номером {profile_num}. Введите число от 1 до {len(apps)}.")
-            return
+            # Добавляем кнопку "Назад" при ошибке ввода номера
+            keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_admin_menu")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(f"❌ Нет профиля с номером {profile_num}. Введите число от 1 до {len(apps)}.", reply_markup=reply_markup)
+            return WAITING_DELETE_ID # Остаемся в состоянии WAITING_DELETE_ID
 
         app = apps[profile_num - 1] # Получаем запись по порядковому номеру
         app_id_to_delete = app['id'] # ID записи в БД
@@ -288,23 +307,29 @@ async def waiting_delete_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = [
             [InlineKeyboardButton("✅ Да, удалить", callback_data="confirm_delete")],
-            [InlineKeyboardButton("❌ Нет, отмена", callback_data="cancel_action")]
+            [InlineKeyboardButton("❌ Нет, отмена", callback_data="cancel_action")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_admin_menu")]
         ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             f"❓ Действительно удалить профиль #{profile_num}?\n"
             f"ID: #{app_id_to_delete}\n"
             f"Ник: {app['nickname']}\n"
             f"Ранг: {app['rank']}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=reply_markup
         )
         # Сбрасываем флаг, так как теперь ждем подтверждения через кнопки
         context.user_data['awaiting_delete_id'] = False
         return CONFIRM_DELETE
     except Exception as e:
         logger.error(f"Ошибка при получении профиля: {e}")
-        await update.message.reply_text("❌ Ошибка при поиске профиля.")
+        # Добавляем кнопку "Назад" при ошибке
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_admin_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("❌ Ошибка при поиске профиля.", reply_markup=reply_markup)
         # Сбрасываем флаг в случае ошибки
         context.user_data['awaiting_delete_id'] = False
+        return ConversationHandler.END # Завершаем в случае ошибки
 
 # Обработчик подтверждения/отмены удаления
 async def confirm_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -329,14 +354,17 @@ async def confirm_delete_handler(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             logger.error(f"Ошибка удаления профиля: {e}")
             await query.edit_message_text("❌ Ошибка при удалении.")
-    elif query.data == "cancel_action":
-        # <<< После отмены возвращаемся в главное меню админа
+    elif query.data in ["cancel_action", "back_to_admin_menu"]: # Обрабатываем обе кнопки
+        if query.data == "cancel_action":
+             await query.edit_message_text("❌ Удаление отменено.")
+        # В любом случае, если нажата "Назад" или "Отмена", возвращаемся в меню
         reply_markup = get_admin_menu_keyboard()
         await query.edit_message_text("👑 Админ-панель", reply_markup=reply_markup)
 
     # Сброс состояния
     context.user_data.pop('delete_app_id', None)
     context.user_data.pop('delete_nickname', None)
+    # Не возвращаем ConversationHandler.END здесь, так как это обработчик CallbackQuery
     return ConversationHandler.END
 
 # === СБРОС ВСЕХ ЗАЯВОК ===
@@ -356,8 +384,10 @@ async def confirm_reset_handler(update: Update, context: ContextTypes.DEFAULT_TY
         except Exception as e:
             logger.error(f"Ошибка сброса: {e}")
             await query.edit_message_text("❌ Ошибка при сбросе.")
-    elif query.data == "cancel_action":
-        # <<< После отмены сброса возвращаемся в главное меню админа
+    elif query.data in ["cancel_action", "back_to_admin_menu"]: # Обрабатываем обе кнопки
+        if query.data == "cancel_action":
+             await query.edit_message_text("❌ Сброс отменён.")
+        # В любом случае, если нажата "Назад" или "Отмена", возвращаемся в меню
         reply_markup = get_admin_menu_keyboard()
         await query.edit_message_text("👑 Админ-панель", reply_markup=reply_markup)
 
@@ -373,8 +403,8 @@ def main():
     # Обработчики админских кнопок (включая пагинацию и кнопку "Назад")
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^(stats|list_all_page_|delete_profile|reset_all|back_to_admin_menu)$"))
     # Обработчики подтверждения/отмены удаления и сброса
-    application.add_handler(CallbackQueryHandler(confirm_delete_handler, pattern="^(confirm_delete|cancel_action)$"))
-    application.add_handler(CallbackQueryHandler(confirm_reset_handler, pattern="^(confirm_reset|cancel_action)$"))
+    application.add_handler(CallbackQueryHandler(confirm_delete_handler, pattern="^(confirm_delete|cancel_action|back_to_admin_menu)$"))
+    application.add_handler(CallbackQueryHandler(confirm_reset_handler, pattern="^(confirm_reset|cancel_action|back_to_admin_menu)$"))
 
     # === Диалог регистрации ===
     conv_handler = ConversationHandler(
