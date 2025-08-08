@@ -4,6 +4,7 @@ import sys
 import logging
 # Имитация открытия порта для удовлетворения Render (на случай, если переменная окружения не сработает)
 # Делаем это ДО любых других импортов
+# Имитация открытия порта для удовлетворения Render (на случай, если переменная окружения не сработает)
 try:
     import threading
     import time
@@ -16,7 +17,7 @@ try:
             port = s.getsockname()[1]
             print(f"INFO:render: Temporarily bound to port {port} to satisfy Render port scan.")
             s.listen(1)
-            time.sleep(2) # Ждем немного
+            time.sleep(2)  # Ждем немного
             s.close()
             print(f"INFO:render: Port {port} closed.")
         except Exception as e:
@@ -25,7 +26,7 @@ try:
     port_thread = threading.Thread(target=open_and_close_port, daemon=True)
     port_thread.start()
 except Exception as e:
-    pass # Игнорируем ошибки, если не удалось
+    pass  # Игнорируем ошибки, если не удалось
 
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
