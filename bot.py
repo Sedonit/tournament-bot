@@ -3,10 +3,17 @@ import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
+# Попытка импортировать функции базы данных
+try:
+    from database import init_db, save_application, get_stats, get_all_applications, reset_applications
+    DATABASE_AVAILABLE = True
+except ImportError:
+    DATABASE_AVAILABLE = False
+    logging.warning("Модуль database.py не найден. Работа с базой данных отключена.")
+
 # Получаем токен и ID админов из переменных окружения
-# Правильно!
-BOT_TOKEN = os.environ.get('BOT_TOKEN')  # Получаем значение переменной с ключом 'BOT_TOKEN'
-ADMIN_IDS_STR = os.environ.get('ADMIN_IDS', '')  # Получаем значение переменной с ключом 'ADMIN_IDS'
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+ADMIN_IDS_STR = os.environ.get('ADMIN_IDS', '')
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(',') if x.strip().isdigit()]
 
 # Состояния разговора
@@ -20,16 +27,29 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Инициализация базы данных
+def initialize_database():
+    if DATABASE_AVAILABLE:
+        try:
+            init_db()
+            logger.info("База данных инициализирована успешно")
+        except Exception as e:
+            logger.error(f"Ошибка инициализации базы данных: {e}")
+    else:
+        logger.info("База данных недоступна, пропускаем инициализацию")
+
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id in ADMIN_IDS:
-        await update.message.reply_text(
-            "👑 Админ-панель\n\n"
-            "Доступные команды:\n"
-            "/stats - Статистика заявок\n"
-            "/list - Список всех участников"
-        )
+        message = "👑 Админ-панель\n\nДоступные команды:\n"
+        if DATABASE_AVAILABLE:
+            message += "/stats - Статистика заявок\n"
+            message += "/list - Список всех участников\n"
+            message += "/reset - Сбросить все заявки\n"
+        else:
+            message += "📊 Статистика временно недоступна\n"
+        await update.message.reply_text(message)
         return
     
     await update.message.reply_text(
@@ -75,8 +95,21 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contact = context.user_data.get('contact', 'Не указан')
     team = context.user_data.get('team', 'Не указан')
     
-    form_text = (
-        f"🎮 Новая заявка на турнир!\n\n"
+    # Сохраняем в базу данных (если доступна)
+    app_id = None
+    if DATABASE_AVAILABLE:
+        try:
+            app_id = save_application(nickname, rank, name, contact, team)
+        except Exception as e:
+            logger.error(f"Ошибка сохранения в БД: {e}")
+    
+    # Формируем сообщение
+    form_text = f"🎮 Новая заявка на турнир!\n"
+    if app_id:
+        form_text += f"Номер заявки: #{app_id}\n\n"
+    else:
+        form_text += "\n"
+    form_text += (
         f"Никнейм: {nickname}\n"
         f"Ранг: {rank}\n"
         f"Имя: {name}\n"
@@ -92,10 +125,12 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Не удалось отправить сообщение админу {admin_id}: {e}")
     
     # Ответ пользователю
-    await update.message.reply_text(
-        "✅ Спасибо! Ваша заявка отправлена организаторам турнира.\n"
-        "Ожидайте подтверждения участия!"
-    )
+    response_text = "✅ Спасибо! Ваша заявка отправлена организаторам турнира.\n"
+    if app_id:
+        response_text += f"Номер вашей заявки: #{app_id}\n"
+    response_text += "Ожидайте подтверждения участия!"
+    
+    await update.message.reply_text(response_text)
     
     return ConversationHandler.END
 
@@ -110,17 +145,88 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ У вас нет доступа к этой команде.")
         return
-    await update.message.reply_text("📊 Пока что счетчик заявок хранится локально и недоступен на Render.")
+    
+    if not DATABASE_AVAILABLE:
+        await update.message.reply_text("❌ Статистика временно недоступна.")
+        return
+    
+    try:
+        total, teams = get_stats()
+        message = f"📊 Статистика турнира\n\n"
+        message += f"Всего заявок: {total}\n\n"
+        
+        if teams:
+            message += "Команды:\n"
+            for team in teams:
+                message += f"  {team['team']}: {team['count']} участников\n"
+        else:
+            message += "Пока нет зарегистрированных команд."
+            
+        await update.message.reply_text(message)
+    except Exception as e:
+        logger.error(f"Ошибка получения статистики: {e}")
+        await update.message.reply_text("❌ Ошибка получения статистики.")
 
 async def list_participants(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ У вас нет доступа к этой команде.")
         return
-    await update.message.reply_text("📋 Список участников временно недоступен на Render.")
+    
+    if not DATABASE_AVAILABLE:
+        await update.message.reply_text("❌ Список участников временно недоступен.")
+        return
+    
+    try:
+        applications = get_all_applications()
+        
+        if not applications:
+            await update.message.reply_text("📭 Пока нет заявок.")
+            return
+        
+        message = f"📋 Список участников (всего: {len(applications)}):\n\n"
+        
+        for i, app in enumerate(applications, 1):
+            message += f"{i}. {app['nickname']} ({app['rank']})\n"
+            message += f"   Связь: {app['contact']}\n"
+            if app['team'] and app['team'] != 'Нет':
+                message += f"   Команда: {app['team']}\n"
+            message += "\n"
+            
+            # Если сообщение слишком длинное, отправляем частями
+            if len(message) > 3000:
+                await update.message.reply_text(message)
+                message = ""
+        
+        if message:
+            await update.message.reply_text(message)
+            
+    except Exception as e:
+        logger.error(f"Ошибка получения списка участников: {e}")
+        await update.message.reply_text("❌ Ошибка получения списка участников.")
+
+async def reset_counter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ У вас нет доступа к этой команде.")
+        return
+    
+    if not DATABASE_AVAILABLE:
+        await update.message.reply_text("❌ Сброс временно недоступен.")
+        return
+    
+    try:
+        deleted_count = reset_applications()
+        await update.message.reply_text(f"✅ База данных очищена. Удалено заявок: {deleted_count}")
+    except Exception as e:
+        logger.error(f"Ошибка сброса базы данных: {e}")
+        await update.message.reply_text("❌ Ошибка при сбросе базы данных.")
 
 # Основная функция запуска
 def main():
+    # Инициализация базы данных
+    initialize_database()
+    
     # Создаем приложение
     application = Application.builder().token(BOT_TOKEN).build()
 
@@ -137,9 +243,11 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
 
-    # Добавляем команды для админов
-    application.add_handler(CommandHandler('stats', stats))
-    application.add_handler(CommandHandler('list', list_participants))
+    # Добавляем команды для админов (только если БД доступна)
+    if DATABASE_AVAILABLE:
+        application.add_handler(CommandHandler('stats', stats))
+        application.add_handler(CommandHandler('list', list_participants))
+        application.add_handler(CommandHandler('reset', reset_counter))
     
     application.add_handler(conv_handler)
 
