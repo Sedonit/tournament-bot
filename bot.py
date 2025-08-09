@@ -112,12 +112,12 @@ async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['name'] = update.message.text
-    await update.message.reply_text("4. Способ связи (Telegram, Discord и т.д.):")
+    await update.message.reply_text("4. Способ связи отправьте ссылкой (Telegram, Discord и т.д.):")
     return CONTACT
 
 async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['contact'] = update.message.text
-    await update.message.reply_text("5. Команда (или 'Нет'):")
+    await update.message.reply_text("5. есть ли команда или что вы расскажите о себе (или просто напишите'Нет'):")
     return TEAM
 
 async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
