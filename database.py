@@ -1,134 +1,116 @@
-# bot.py
+# database.py
+import psycopg2
 import os
-import sys
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-    ConversationHandler,
-    CallbackQueryHandler,
-)
+from psycopg2.extras import RealDictCursor
 
-# Имитация открытия порта для удовлетворения Render (на случай, если переменная окружения не сработает)
-try:
-    import threading
-    import time
-    import socket
+# Получаем URL базы данных из переменных окружения
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
-    def open_and_close_port():
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.bind(('0.0.0.0', 0))
-            port = s.getsockname()[1]
-            print(f"INFO:render: Temporarily bound to port {port} to satisfy Render port scan.")
-            s.listen(1)
-            time.sleep(2)  # Ждем немного
-            s.close()
-            print(f"INFO:render: Port {port} closed.")
-        except Exception as e:
-            print(f"INFO:render: Could not temporarily bind port: {e}")
+# === ВАЖНО: ЭТА ФУНКЦИЯ ДОЛЖНА БЫТЬ ПЕРВОЙ ===
+def get_db_connection():
+    """Создание подключения к базе данных"""
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
-    port_thread = threading.Thread(target=open_and_close_port, daemon=True)
-    port_thread.start()
-except Exception as e:
-    pass  # Игнорируем ошибки, если не удалось
+# === Теперь можно использовать get_db_connection ===
 
+def init_db():
+    """Инициализация базы данных - создание таблиц"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Создание таблицы для анкет
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS applications (
+            id SERIAL PRIMARY KEY,
+            nickname VARCHAR(100) NOT NULL,
+            rank VARCHAR(100) NOT NULL,
+            name VARCHAR(100),
+            contact VARCHAR(200) NOT NULL,
+            team VARCHAR(100),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    conn.commit()
+    cur.close()
+    conn.close()
 
-# --- 🔒 Блокировка повторного запуска ---
-LOCK_FILE = "bot.lock"
+def save_application(nickname, rank, name, contact, team):
+    """Сохранение анкеты в базу данных"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute("""
+        INSERT INTO applications (nickname, rank, name, contact, team)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id
+    """, (nickname, rank, name, contact, team))
+    
+    app_id = cur.fetchone()['id']
+    conn.commit()
+    cur.close()
+    conn.close()
+    return app_id
 
-if os.path.exists(LOCK_FILE):
-    print("❌ Бот уже запущен или предыдущий процесс не завершился.")
-    print("Удалите файл 'bot.lock', если уверены, что бот не работает.")
-    sys.exit(1)
+def get_stats():
+    """Получение статистики"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Общее количество анкет
+    cur.execute("SELECT COUNT(*) as count FROM applications")
+    total = cur.fetchone()['count']
+    
+    # Количество анкет по командам
+    cur.execute("""
+        SELECT team, COUNT(*) as count 
+        FROM applications 
+        WHERE team != 'Нет' AND team IS NOT NULL
+        GROUP BY team
+        ORDER BY count DESC
+    """)
+    teams = cur.fetchall()
+    
+    cur.close()
+    conn.close()
+    return total, teams
 
-# Создаём файл блокировки
-with open(LOCK_FILE, "w", encoding="utf-8") as f:
-    f.write(str(os.getpid()))
+def get_all_applications():
+    """Получение всех анкет"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute("""
+        SELECT id, nickname, rank, name, contact, team, created_at
+        FROM applications
+        ORDER BY created_at DESC
+    """)
+    applications = cur.fetchall()
+    
+    cur.close()
+    conn.close()
+    return applications
 
-# Удаляем файл при выходе
-import atexit
-atexit.register(lambda: os.path.exists(LOCK_FILE) and os.remove(LOCK_FILE))
-# ---------------------------------------
+def reset_applications():
+    """Очистка всех анкет"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute("DELETE FROM applications")
+    deleted_count = cur.rowcount
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    return deleted_count
 
-# Попытка импортировать базу данных
-try:
-    from database import (
-        init_db,
-        save_application,
-        get_stats,
-        get_all_applications,
-        reset_applications,
-        delete_application_by_id,
-    )
-    DATABASE_AVAILABLE = True
-except ImportError as e:
-    DATABASE_AVAILABLE = False
-    logging.warning(f"Модуль database.py не найден: {e}")
-
-# Получаем токен и ID админов из переменных окружения
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-if not BOT_TOKEN:
-    logging.error("❌ Не задан BOT_TOKEN в переменных окружения!")
-    sys.exit(1)
-
-ADMIN_IDS_STR = os.environ.get('ADMIN_IDS', '')
-ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(',') if x.strip().isdigit()]
-
-# Состояния
-NICKNAME, RANK, NAME, CONTACT, TEAM = range(5)
-WAITING_DELETE_ID, CONFIRM_DELETE = range(100, 102)
-
-# Логирование
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-def initialize_database():
-    if DATABASE_AVAILABLE:
-        try:
-            init_db()
-            logger.info("✅ База данных инициализирована успешно")
-        except Exception as e:
-            logger.error(f"❌ Ошибка инициализации базы данных: {e}")
-    else:
-        logger.info("⚠️ Работа с базой данных отключена")
-
-# Функция для создания основного админ-меню
-def get_admin_menu_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
-        [InlineKeyboardButton("📋 Все участники", callback_data="list_all")],
-        [InlineKeyboardButton("🗑 Удалить профиль", callback_data="delete_profile")],
-        [InlineKeyboardButton("♻️ Сбросить всё", callback_data="reset_all")],
-    ])
-
-# Команда /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id in ADMIN_IDS:
-        reply_markup = get_admin_menu_keyboard()
-        await update.message.reply_text("👑 Админ-панель", reply_markup=reply_markup)
-        return ConversationHandler.END
-
-    await update.message.reply_text(
-        "🏆 Добро пожаловать на регистрацию турнира!\n"
-        "Пожалуйста, ответьте на несколько вопросов:"
-    )
-    await update.message.reply_text("1. Введите ваш никнейм в игре:")
-    return NICKNAME
-
-# === ОБРАБОТКА РЕГИСТРАЦИИ ===
-async def nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['nickname'] = update.message.text
-    await update.message.reply_text("2. Какое у вас звание/ранг?")
-    return RANK
-
-async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['rank']
+def delete_application_by_id(app_id):
+    """Удаление анкеты по ID"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM applications WHERE id = %s", (app_id,))
+    deleted = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return deleted
