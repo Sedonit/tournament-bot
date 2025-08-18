@@ -96,13 +96,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🏆 Добро пожаловать на регистрацию турнира!\n"
         "Пожалуйста, ответьте на несколько вопросов:"
     )
-    await update.message.reply_text("1. Введите ваш никнейм в игре:")
+    await update.message.reply_text("1. Введите ваш никнейм в игре (в steam профиле):")
     return NICKNAME
 
 # === ОБРАБОТКА РЕГИСТРАЦИИ ===
 async def nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['nickname'] = update.message.text
-    await update.message.reply_text("2. Какое у вас звание/ранг?")
+    await update.message.reply_text("2. Какое у вас рейнтинг премьера/общий ранг?")
     return RANK
 
 async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -117,7 +117,7 @@ async def name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['contact'] = update.message.text
-    await update.message.reply_text("5. есть ли команда или что вы расскажите о себе (или просто напишите'Нет'):")
+    await update.message.reply_text("5. есть ли команда или расскажите о себе (или просто напишите 'Нет'):")
     return TEAM
 
 async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -159,7 +159,7 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = "✅ Заявка отправлена!\n"
     if app_id:
         response += f"Ваш ID: #{app_id}\n"
-    response += "С вами свяжутся по указанному контакту."
+    response += "С вами свяжутся по указанному контакту. Ожидайте ответ в ближаешее время."
     await update.message.reply_text(response)
     return ConversationHandler.END
 
